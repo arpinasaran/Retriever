@@ -2,6 +2,7 @@ import re
 import math
 import time
 from bsbi import BSBIIndex
+from spimi import SPIMIIndex
 from compression import VBEPostings
 
 ######## >>>>> sebuah IR metric: RBP p = 0.8
@@ -228,12 +229,25 @@ if __name__ == '__main__':
   assert qrels["Q1"][166] == 1, "qrels salah"
   assert qrels["Q1"][300] == 0, "qrels salah"
 
-  BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                          postings_encoding = VBEPostings, \
-                          output_dir = 'index')
+  BSBI_instance = BSBIIndex(data_dir='collection',
+                            postings_encoding=VBEPostings,
+                            output_dir='index')
 
-  eval(qrels, BSBI_instance.retrieve_tfidf, "TF-IDF")
+  SPIMI_instance = SPIMIIndex(data_dir='collection',
+                              postings_encoding=VBEPostings,
+                              output_dir='index_spimi')
+
+  print("======== BSBI ========")
+  eval(qrels, BSBI_instance.retrieve_tfidf, "TF-IDF (BSBI)")
   print()
-  eval(qrels, BSBI_instance.retrieve_bm25, "BM25")
+  eval(qrels, BSBI_instance.retrieve_bm25, "BM25 (BSBI)")
   print()
-  eval(qrels, BSBI_instance.retrieve_bm25_wand, "BM25 + WAND")
+  eval(qrels, BSBI_instance.retrieve_bm25_wand, "BM25 + WAND (BSBI)")
+
+  print()
+  print("======== SPIMI ========")
+  eval(qrels, SPIMI_instance.retrieve_tfidf, "TF-IDF (SPIMI)")
+  print()
+  eval(qrels, SPIMI_instance.retrieve_bm25, "BM25 (SPIMI)")
+  print()
+  eval(qrels, SPIMI_instance.retrieve_bm25_wand, "BM25 + WAND (SPIMI)")

@@ -212,5 +212,7 @@ __marimo__/
 # Index build artifacts (keep folders via .gitkeep)
 index/*
 !index/.gitkeep
+index_spimi/*
+!index_spimi/.gitkeep
 tmp/*
 !tmp/.gitkeep
