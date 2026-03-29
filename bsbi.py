@@ -5,6 +5,7 @@ import heapq
 import time
 import math
 import re
+from bisect import bisect_left
 
 # NLP Imports
 import Stemmer
@@ -327,6 +328,188 @@ class BSBIIndex:
             docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
             return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
 
+    def retrieve_bm25_wand(self, query, k=10, k1=1.2, b=0.75):
+        """Ranked Retrieval using BM25 scoring with WAND top-K optimization.
+
+        Instead of scoring every document, WAND skips documents whose
+        upper-bound contribution cannot beat the current top-K threshold.
+        Uses the precomputed per-term upper bounds from indexing.
+
+        Parameters
+        ----------
+        query : str
+            Query string.
+        k : int
+            Number of top documents to return.
+        k1 : float
+            BM25 term frequency saturation parameter (default 1.2).
+        b : float
+            BM25 document length normalization parameter (default 0.75).
+
+        Returns
+        -------
+        List[(float, str)]
+            Top-K documents sorted by descending BM25 score.
+        """
+        if len(self.term_id_map) == 0 or len(self.doc_id_map) == 0:
+            self.load()
+
+        # Load precomputed upper bounds
+        ub_path = os.path.join(self.output_dir, self.index_name + '.ub')
+        with open(ub_path, 'rb') as f:
+            upper_bounds = pickle.load(f)
+
+        # Process query with the same NLP pipeline
+        query_tokens = re.findall(r'\b[a-z0-9]+\b', query.lower())
+        processed_query = [
+            self.stemmer.stemWord(token)
+            for token in query_tokens
+            if token not in self.stop_words
+        ]
+        terms = [self.term_id_map[word] for word in processed_query if word in self.term_id_map]
+
+        with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
+            N = len(merged_index.doc_length)
+            avdl = sum(merged_index.doc_length.values()) / N
+
+            # Load postings lists and metadata for all query terms
+            term_data = []  # list of (term_id, postings, tf_list, ub, cursor)
+            for term in terms:
+                if term in merged_index.postings_dict:
+                    postings, tf_list = merged_index.get_postings_list(term)
+                    ub = upper_bounds.get(term, 0.0)
+                    # cursor is index into postings list
+                    term_data.append({
+                        'term_id': term,
+                        'postings': postings,
+                        'tf_list': tf_list,
+                        'ub': ub,
+                        'cursor': 0,  # points to current position
+                        'df': merged_index.postings_dict[term][1],
+                    })
+
+            if not term_data:
+                return []
+
+            # Sentinel: a doc ID larger than any real doc ID
+            LAST_ID = float('inf')
+
+            def current_did(td):
+                """Return the doc ID at the current cursor, or LAST_ID if exhausted."""
+                if td['cursor'] < len(td['postings']):
+                    return td['postings'][td['cursor']]
+                return LAST_ID
+
+            def advance_to(td, target):
+                """Advance cursor to first doc ID >= target using binary search."""
+                postings = td['postings']
+                pos = bisect_left(postings, target, td['cursor'])
+                td['cursor'] = pos
+
+            def full_eval(doc_id):
+                """Compute exact BM25 score for a document across all query terms."""
+                score = 0.0
+                dl = merged_index.doc_length[doc_id]
+                for td in term_data:
+                    c = td['cursor']
+                    # Check if this term is present in doc_id
+                    postings = td['postings']
+                    # Find doc_id starting from cursor (it might be at cursor or later)
+                    pos = bisect_left(postings, doc_id, c)
+                    if pos < len(postings) and postings[pos] == doc_id:
+                        tf = td['tf_list'][pos]
+                        idf = math.log(N / td['df'])
+                        score += idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avdl))
+                return score
+
+            # Top-K min-heap: stores (score, doc_id)
+            top_k_heap = []
+            threshold = 0.0
+            cur_doc = -1
+
+            # WAND main loop — implements next(θ) from the pseudocode
+            while True:
+                # Step A: Sort terms by current DID (non-decreasing)
+                term_data.sort(key=lambda td: current_did(td))
+
+                # Step B: Find pivot term — first term where accumulated UB >= threshold
+                acc_ub = 0.0
+                p_term_idx = None
+                for i, td in enumerate(term_data):
+                    if current_did(td) == LAST_ID:
+                        break
+                    acc_ub += td['ub']
+                    if acc_ub >= threshold:
+                        p_term_idx = i
+                        break
+
+                # No pivot found — no more candidates can beat threshold
+                if p_term_idx is None:
+                    break
+
+                pivot = current_did(term_data[p_term_idx])
+                if pivot == LAST_ID:
+                    break
+
+                if pivot <= cur_doc:
+                    # Pivot already considered, advance a preceding term past cur_doc
+                    # pickTerm: choose term with smallest postings list (cheapest to advance)
+                    aterm_idx = min(range(p_term_idx + 1),
+                                   key=lambda i: len(term_data[i]['postings']))
+                    advance_to(term_data[aterm_idx], cur_doc + 1)
+                else:
+                    # pivot > cur_doc
+                    if current_did(term_data[0]) == pivot:
+                        # Success: all preceding terms point to pivot doc
+                        cur_doc = pivot
+                        score = full_eval(cur_doc)
+
+                        if len(top_k_heap) < k:
+                            heapq.heappush(top_k_heap, (score, cur_doc))
+                            if len(top_k_heap) == k:
+                                threshold = top_k_heap[0][0]
+                        elif score > threshold:
+                            heapq.heapreplace(top_k_heap, (score, cur_doc))
+                            threshold = top_k_heap[0][0]
+                    else:
+                        # Not enough mass, advance a preceding term to pivot
+                        aterm_idx = min(range(p_term_idx + 1),
+                                       key=lambda i: len(term_data[i]['postings']))
+                        advance_to(term_data[aterm_idx], pivot)
+
+            # Convert heap to sorted results
+            results = [(score, self.doc_id_map[doc_id]) for (score, doc_id) in top_k_heap]
+            return sorted(results, key=lambda x: x[0], reverse=True)
+
+    def _precompute_upper_bounds(self, k1=1.2, b=0.75):
+        """Precompute per-term BM25 upper bound scores after indexing.
+
+        For each term t, UB_t = IDF(t) * max_d [ tf*(k1+1) / (tf + k1*(1-b+b*dl/avdl)) ]
+        These are stored to disk so WAND retrieval can load them at query time.
+        """
+        ub_path = os.path.join(self.output_dir, self.index_name + '.ub')
+        with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as reader:
+            N = len(reader.doc_length)
+            avdl = sum(reader.doc_length.values()) / N
+            upper_bounds = {}
+
+            for term_id in reader.postings_dict:
+                df = reader.postings_dict[term_id][1]
+                idf = math.log(N / df)
+                postings, tf_list = reader.get_postings_list(term_id)
+
+                max_score = 0.0
+                for i in range(len(postings)):
+                    tf = tf_list[i]
+                    dl = reader.doc_length[postings[i]]
+                    score = idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * dl / avdl))
+                    if score > max_score:
+                        max_score = score
+                upper_bounds[term_id] = max_score
+
+        with open(ub_path, 'wb') as f:
+            pickle.dump(upper_bounds, f)
+
     def index(self):
         """
         Base indexing code
@@ -345,7 +528,7 @@ class BSBIIndex:
             with InvertedIndexWriter(index_id, self.postings_encoding, directory = self.output_dir) as index:
                 self.invert_write(td_pairs, index)
                 td_pairs = None
-    
+
         self.save()
 
         with InvertedIndexWriter(self.index_name, self.postings_encoding, directory = self.output_dir) as merged_index:
@@ -353,6 +536,8 @@ class BSBIIndex:
                 indices = [stack.enter_context(InvertedIndexReader(index_id, self.postings_encoding, directory=self.output_dir))
                                for index_id in self.intermediate_indices]
                 self.merge(indices, merged_index)
+
+        self._precompute_upper_bounds()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import re
 import math
+import time
 from bsbi import BSBIIndex
 from compression import VBEPostings
 
@@ -168,7 +169,8 @@ def eval(qrels, retrieve_fn, label, query_file = "queries.txt", k = 1000):
   """
     loop ke semua 30 query, hitung score di setiap query,
     lalu hitung MEAN SCORE over those 30 queries.
-    untuk setiap query, kembalikan top-1000 documents
+    untuk setiap query, kembalikan top-1000 documents.
+    Also measures total retrieval time across all queries.
 
     Parameters
     ----------
@@ -186,6 +188,7 @@ def eval(qrels, retrieve_fn, label, query_file = "queries.txt", k = 1000):
     precision_scores = []
     ap_scores = []
 
+    total_time = 0.0
     for qline in file:
       parts = qline.strip().split()
       qid = parts[0]
@@ -193,8 +196,13 @@ def eval(qrels, retrieve_fn, label, query_file = "queries.txt", k = 1000):
 
       # HATI-HATI, doc id saat indexing bisa jadi berbeda dengan doc id
       # yang tertera di qrels
+      t0 = time.time()
+      results = retrieve_fn(query, k = k)
+      t1 = time.time()
+      total_time += (t1 - t0)
+
       ranking = []
-      for (score, doc) in retrieve_fn(query, k = k):
+      for (score, doc) in results:
           did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
           ranking.append(qrels[qid][did])
       rbp_scores.append(rbp(ranking))
@@ -212,6 +220,7 @@ def eval(qrels, retrieve_fn, label, query_file = "queries.txt", k = 1000):
   print("NDCG score =", mean(ndcg_scores))
   print("Precision score =", mean(precision_scores))
   print("AP score =", mean(ap_scores))
+  print(f"Total retrieval time = {total_time:.4f} seconds")
 
 if __name__ == '__main__':
   qrels = load_qrels()
@@ -226,3 +235,5 @@ if __name__ == '__main__':
   eval(qrels, BSBI_instance.retrieve_tfidf, "TF-IDF")
   print()
   eval(qrels, BSBI_instance.retrieve_bm25, "BM25")
+  print()
+  eval(qrels, BSBI_instance.retrieve_bm25_wand, "BM25 + WAND")
