@@ -13,7 +13,10 @@ queries = ["alkylated with radioactive iodoacetate", \
            
 for query in queries:
     print("Query  : ", query)
-    print("Results:")
+    print("Results TF-IDF:")
     for (score, doc) in BSBI_instance.retrieve_tfidf(query, k = 10):
+        print(f"{doc:30} {score:>.3f}")
+    print("Results BM25:")
+    for (score, doc) in BSBI_instance.retrieve_bm25(query, k = 10):
         print(f"{doc:30} {score:>.3f}")
     print()
