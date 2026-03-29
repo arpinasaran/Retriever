@@ -4,6 +4,11 @@ import contextlib
 import heapq
 import time
 import math
+import re
+
+# NLP Imports
+import Stemmer
+from stop_words import get_stop_words
 
 from index import InvertedIndexReader, InvertedIndexWriter
 from util import IdMap, sorted_merge_posts_and_tfs
@@ -33,6 +38,10 @@ class BSBIIndex:
 
         # Untuk menyimpan nama-nama file dari semua intermediate inverted index
         self.intermediate_indices = []
+
+        # Inisialisasi tools untuk NLP (Stemming & Stopwords)
+        self.stemmer = Stemmer.Stemmer('english')
+        self.stop_words = set(get_stop_words('english'))
 
     def save(self):
         """Menyimpan doc_id_map and term_id_map ke output directory via pickle"""
@@ -83,13 +92,28 @@ class BSBIIndex:
         termIDs dan docIDs. Dua variable ini harus 'persist' untuk semua pemanggilan
         parse_block(...).
         """
-        dir = "./" + self.data_dir + "/" + block_dir_relative
+        dir_path = "./" + self.data_dir + "/" + block_dir_relative
         td_pairs = []
-        for filename in next(os.walk(dir))[2]:
-            docname = dir + "/" + filename
-            with open(docname, "r", encoding = "utf8", errors = "surrogateescape") as f:
-                for token in f.read().split():
-                    td_pairs.append((self.term_id_map[token], self.doc_id_map[docname]))
+        
+        for filename in next(os.walk(dir_path))[2]:
+            # Normalisasi path agar konsisten
+            docname = os.path.join(dir_path, filename).replace("\\", "/")
+            doc_id = self.doc_id_map[docname]
+            
+            with open(docname, "r", encoding="utf8", errors="surrogateescape") as f:
+                text = f.read()
+                
+                # Tokenization: Ambil hanya alphanumeric dan jadikan lowercase
+                tokens = re.findall(r'\b[a-z0-9]+\b', text.lower())
+                
+                for token in tokens:
+                    # Stopword Removal
+                    if token not in self.stop_words:
+                        # Stemming Bahasa Inggris
+                        stemmed_term = self.stemmer.stemWord(token)
+                        
+                        term_id = self.term_id_map[stemmed_term]
+                        td_pairs.append((term_id, doc_id))
 
         return td_pairs
 
@@ -203,7 +227,17 @@ class BSBIIndex:
         if len(self.term_id_map) == 0 or len(self.doc_id_map) == 0:
             self.load()
 
-        terms = [self.term_id_map[word] for word in query.split()]
+        # Proses query menggunakan pipeline NLP yang sama dengan dokumen
+        query_tokens = re.findall(r'\b[a-z0-9]+\b', query.lower())
+        processed_query = [
+            self.stemmer.stemWord(token) 
+            for token in query_tokens 
+            if token not in self.stop_words
+        ]
+
+        # Konversi term menjadi term_id, abaikan jika term tidak ada di collection
+        terms = [self.term_id_map[word] for word in processed_query if word in self.term_id_map]
+        
         with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
 
             scores = {}

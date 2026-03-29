@@ -1,1 +1,3 @@
 tqdm==4.67.3
+PyStemmer==3.0.0
+stop-words==2025.11.4
