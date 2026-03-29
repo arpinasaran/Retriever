@@ -257,6 +257,76 @@ class BSBIIndex:
             docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
             return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
 
+    def retrieve_bm25(self, query, k = 10, k1 = 1.2, b = 0.75):
+        """
+        Melakukan Ranked Retrieval dengan skema scoring BM25.
+        Method akan mengembalikan top-K retrieval results.
+
+        Score BM25 = untuk setiap term t di query, akumulasikan:
+            IDF(t) * (tf(t,D) * (k1 + 1)) / (tf(t,D) + k1 * (1 - b + b * dl/avdl))
+
+        dimana:
+            IDF(t)  = log(N / df(t))
+            tf(t,D) = term frequency of t in document D
+            dl      = panjang dokumen D (jumlah token)
+            avdl    = rata-rata panjang dokumen di seluruh collection
+
+        Parameters
+        ----------
+        query: str
+            Query string
+        k: int
+            Jumlah dokumen yang dikembalikan
+        k1: float
+            Parameter BM25 untuk term frequency saturation (default 1.2)
+        b: float
+            Parameter BM25 untuk document length normalization (default 0.75)
+
+        Result
+        ------
+        List[(float, str)]
+            List of tuple: elemen pertama adalah score, dan yang
+            kedua adalah nama dokumen.
+            Daftar Top-K dokumen terurut mengecil BERDASARKAN SKOR.
+        """
+        if len(self.term_id_map) == 0 or len(self.doc_id_map) == 0:
+            self.load()
+
+        # Proses query menggunakan pipeline NLP yang sama dengan dokumen
+        query_tokens = re.findall(r'\b[a-z0-9]+\b', query.lower())
+        processed_query = [
+            self.stemmer.stemWord(token)
+            for token in query_tokens
+            if token not in self.stop_words
+        ]
+
+        # Konversi term menjadi term_id, abaikan jika term tidak ada di collection
+        terms = [self.term_id_map[word] for word in processed_query if word in self.term_id_map]
+
+        with InvertedIndexReader(self.index_name, self.postings_encoding, directory=self.output_dir) as merged_index:
+
+            N = len(merged_index.doc_length)
+            avdl = sum(merged_index.doc_length.values()) / N
+
+            scores = {}
+            for term in terms:
+                if term in merged_index.postings_dict:
+                    df = merged_index.postings_dict[term][1]
+                    idf = math.log(N / df)
+                    postings, tf_list = merged_index.get_postings_list(term)
+                    for i in range(len(postings)):
+                        doc_id, tf = postings[i], tf_list[i]
+                        dl = merged_index.doc_length[doc_id]
+                        numerator = tf * (k1 + 1)
+                        denominator = tf + k1 * (1 - b + b * dl / avdl)
+                        if doc_id not in scores:
+                            scores[doc_id] = 0
+                        scores[doc_id] += idf * numerator / denominator
+
+            # Top-K
+            docs = [(score, self.doc_id_map[doc_id]) for (doc_id, score) in scores.items()]
+            return sorted(docs, key = lambda x: x[0], reverse = True)[:k]
+
     def index(self):
         """
         Base indexing code
