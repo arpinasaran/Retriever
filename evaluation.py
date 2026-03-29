@@ -164,16 +164,21 @@ def load_qrels(qrel_file = "qrels.txt", max_q_id = 30, max_doc_id = 1033):
 
 ######## >>>>> EVALUASI !
 
-def eval(qrels, query_file = "queries.txt", k = 1000):
-  """ 
+def eval(qrels, retrieve_fn, label, query_file = "queries.txt", k = 1000):
+  """
     loop ke semua 30 query, hitung score di setiap query,
     lalu hitung MEAN SCORE over those 30 queries.
     untuk setiap query, kembalikan top-1000 documents
-  """
-  BSBI_instance = BSBIIndex(data_dir = 'collection', \
-                          postings_encoding = VBEPostings, \
-                          output_dir = 'index')
 
+    Parameters
+    ----------
+    qrels: dict
+        Relevance judgments
+    retrieve_fn: callable
+        Fungsi retrieval yang menerima (query, k) dan mengembalikan list of (score, doc)
+    label: str
+        Label untuk ditampilkan di output (misal "TF-IDF" atau "BM25")
+  """
   with open(query_file) as file:
     rbp_scores = []
     dcg_scores = []
@@ -189,7 +194,7 @@ def eval(qrels, query_file = "queries.txt", k = 1000):
       # HATI-HATI, doc id saat indexing bisa jadi berbeda dengan doc id
       # yang tertera di qrels
       ranking = []
-      for (score, doc) in BSBI_instance.retrieve_tfidf(query, k = k):
+      for (score, doc) in retrieve_fn(query, k = k):
           did = int(re.search(r'\/.*\/.*\/(.*)\.txt', doc).group(1))
           ranking.append(qrels[qid][did])
       rbp_scores.append(rbp(ranking))
@@ -201,7 +206,7 @@ def eval(qrels, query_file = "queries.txt", k = 1000):
   def mean(scores):
     return sum(scores) / len(scores) if len(scores) > 0 else 0
 
-  print("Hasil evaluasi TF-IDF terhadap 30 queries")
+  print(f"Hasil evaluasi {label} terhadap 30 queries")
   print("RBP score =", mean(rbp_scores))
   print("DCG score =", mean(dcg_scores))
   print("NDCG score =", mean(ndcg_scores))
@@ -214,4 +219,10 @@ if __name__ == '__main__':
   assert qrels["Q1"][166] == 1, "qrels salah"
   assert qrels["Q1"][300] == 0, "qrels salah"
 
-  eval(qrels)
+  BSBI_instance = BSBIIndex(data_dir = 'collection', \
+                          postings_encoding = VBEPostings, \
+                          output_dir = 'index')
+
+  eval(qrels, BSBI_instance.retrieve_tfidf, "TF-IDF")
+  print()
+  eval(qrels, BSBI_instance.retrieve_bm25, "BM25")
