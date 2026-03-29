@@ -208,3 +208,9 @@ __marimo__/
 
 # Claude
 .claude/
+
+# Index build artifacts (keep folders via .gitkeep)
+index/*
+!index/.gitkeep
+tmp/*
+!tmp/.gitkeep
