@@ -8,7 +8,7 @@ class StandardPostings:
     """
 
     @staticmethod
-    def encode(postings_list):
+    def encode(postings_list: list[int]) -> bytes:
         """Encode a postings list to a byte stream using 4-byte unsigned longs.
 
         Parameters
@@ -24,7 +24,7 @@ class StandardPostings:
         return array.array('L', postings_list).tobytes()
 
     @staticmethod
-    def decode(encoded_postings_list):
+    def decode(encoded_postings_list: bytes) -> list[int]:
         """Decode a byte stream back to a postings list.
 
         Parameters
@@ -42,7 +42,7 @@ class StandardPostings:
         return decoded_postings_list.tolist()
 
     @staticmethod
-    def encode_tf(tf_list):
+    def encode_tf(tf_list: list[int]) -> bytes:
         """Encode a list of term frequencies to a byte stream.
 
         Parameters
@@ -58,7 +58,7 @@ class StandardPostings:
         return StandardPostings.encode(tf_list)
 
     @staticmethod
-    def decode_tf(encoded_tf_list):
+    def decode_tf(encoded_tf_list: bytes) -> list[int]:
         """Decode a byte stream back to term frequencies.
 
         Parameters
@@ -86,7 +86,7 @@ class VBEPostings:
     """
 
     @staticmethod
-    def vb_encode_number(number):
+    def vb_encode_number(number: int) -> bytes:
         """Encode a single non-negative integer using Variable-Byte Encoding.
 
         Splits the number into 7-bit chunks (big-endian order) and sets the
@@ -102,7 +102,7 @@ class VBEPostings:
         return array.array('B', bytes).tobytes()
 
     @staticmethod
-    def vb_encode(list_of_numbers):
+    def vb_encode(list_of_numbers: list[int]) -> bytes:
         """Encode a list of non-negative integers using Variable-Byte Encoding."""
         bytes = []
         for number in list_of_numbers:
@@ -110,7 +110,7 @@ class VBEPostings:
         return b"".join(bytes)
 
     @staticmethod
-    def encode(postings_list):
+    def encode(postings_list: list[int]) -> bytes:
         """Encode a sorted postings list into a VBE byte stream.
 
         Converts to gap-based representation first, then applies VBE.
@@ -131,7 +131,7 @@ class VBEPostings:
         return VBEPostings.vb_encode(gap_postings_list)
 
     @staticmethod
-    def encode_tf(tf_list):
+    def encode_tf(tf_list: list[int]) -> bytes:
         """Encode a list of term frequencies into a VBE byte stream.
 
         Parameters
@@ -147,7 +147,7 @@ class VBEPostings:
         return VBEPostings.vb_encode(tf_list)
 
     @staticmethod
-    def vb_decode(encoded_bytestream):
+    def vb_decode(encoded_bytestream: bytes) -> list[int]:
         """Decode a VBE-encoded byte stream back to a list of integers."""
         n = 0
         numbers = []
@@ -164,7 +164,7 @@ class VBEPostings:
         return numbers
 
     @staticmethod
-    def decode(encoded_postings_list):
+    def decode(encoded_postings_list: bytes) -> list[int]:
         """Decode a VBE-encoded postings byte stream back to doc IDs.
 
         Decodes the gap-based list, then reconstructs sorted doc IDs
@@ -189,7 +189,7 @@ class VBEPostings:
         return ori_postings_list
 
     @staticmethod
-    def decode_tf(encoded_tf_list):
+    def decode_tf(encoded_tf_list: bytes) -> list[int]:
         """Decode a VBE-encoded byte stream back to term frequencies.
 
         Parameters
