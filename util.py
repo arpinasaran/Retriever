@@ -1,60 +1,46 @@
 class IdMap:
-    """
-    Ingat kembali di kuliah, bahwa secara praktis, sebuah dokumen dan
-    sebuah term akan direpresentasikan sebagai sebuah integer. Oleh
-    karena itu, kita perlu maintain mapping antara string term (atau
-    dokumen) ke integer yang bersesuaian, dan sebaliknya. Kelas IdMap ini
-    akan melakukan hal tersebut.
+    """Bidirectional mapping between strings (terms or document paths) and integer IDs.
+
+    Internally uses a dict for O(1) string → ID lookup and a list for O(1)
+    ID → string lookup.
+
+    Examples
+    --------
+    >>> m = IdMap()
+    >>> m["hello"]   # assigns and returns ID 0
+    0
+    >>> m["world"]   # assigns and returns ID 1
+    1
+    >>> m[0]         # reverse lookup
+    'hello'
     """
 
     def __init__(self):
-        """
-        Mapping dari string (term atau nama dokumen) ke id disimpan dalam
-        python's dictionary; cukup efisien. Mapping sebaliknya disimpan dalam
-        python's list.
-
-        contoh:
-            str_to_id["halo"] ---> 8
-            str_to_id["/collection/dir0/gamma.txt"] ---> 54
-
-            id_to_str[8] ---> "halo"
-            id_to_str[54] ---> "/collection/dir0/gamma.txt"
-        """
         self.str_to_id = {}
         self.id_to_str = []
 
     def __len__(self):
-        """Mengembalikan banyaknya term (atau dokumen) yang disimpan di IdMap."""
+        """Return the number of entries in the map."""
         return len(self.id_to_str)
 
     def __get_str(self, i):
-        """Mengembalikan string yang terasosiasi dengan index i."""
+        """Return the string associated with integer ID i."""
         return self.id_to_str[i]
 
     def __get_id(self, s):
-        """
-        Mengembalikan integer id i yang berkorespondensi dengan sebuah string s.
-        Jika s tidak ada pada IdMap, lalu assign sebuah integer id baru dan kembalikan
-        integer id baru tersebut.
-        """
+        """Return the integer ID for string s, assigning a new one if absent."""
         if s not in self.str_to_id:
             self.id_to_str.append(s)
             self.str_to_id[s] = len(self.id_to_str) - 1
         return self.str_to_id[s]
 
     def __getitem__(self, key):
-        """
-        __getitem__(...) adalah special method di Python, yang mengizinkan sebuah
-        collection class (seperti IdMap ini) mempunyai mekanisme akses atau
-        modifikasi elemen dengan syntax [..] seperti pada list dan dictionary di Python.
+        """Look up by string (returns/assigns an ID) or by int (returns the string).
 
-        Silakan search informasi ini di Web search engine favorit Anda. Saya mendapatkan
-        link berikut:
-
-        https://stackoverflow.com/questions/43627405/understanding-getitem-method
-
-        Jika key adalah integer, gunakan __get_str;
-        jika key adalah string, gunakan __get_id
+        Parameters
+        ----------
+        key : str or int
+            String to look up (or auto-assign) an ID for, or an int to reverse-look up.
         """
         if type(key) is int:
             return self.__get_str(key)
@@ -64,27 +50,24 @@ class IdMap:
             raise TypeError
 
 def sorted_merge_posts_and_tfs(posts_tfs1, posts_tfs2):
-    """
-    Menggabung (merge) dua lists of tuples (doc id, tf) dan mengembalikan
-    hasil penggabungan keduanya (TF perlu diakumulasikan untuk semua tuple
-    dengn doc id yang sama), dengan aturan berikut:
-
-    contoh: posts_tfs1 = [(1, 34), (3, 2), (4, 23)]
-            posts_tfs2 = [(1, 11), (2, 4), (4, 3 ), (6, 13)]
-
-            return   [(1, 34+11), (2, 4), (3, 2), (4, 23+3), (6, 13)]
-                   = [(1, 45), (2, 4), (3, 2), (4, 26), (6, 13)]
+    """Merge two sorted (doc_id, tf) lists, accumulating TFs for shared doc IDs.
 
     Parameters
     ----------
-    list1: List[(Comparable, int)]
-    list2: List[(Comparable, int]
-        Dua buah sorted list of tuples yang akan di-merge.
+    posts_tfs1 : List[Tuple[int, int]]
+        First sorted list of (doc_id, tf) pairs.
+    posts_tfs2 : List[Tuple[int, int]]
+        Second sorted list of (doc_id, tf) pairs.
 
     Returns
     -------
-    List[(Comparablem, int)]
-        Penggabungan yang sudah terurut
+    List[Tuple[int, int]]
+        Merged sorted list; TFs are summed for doc IDs that appear in both lists.
+
+    Examples
+    --------
+    >>> sorted_merge_posts_and_tfs([(1,34),(3,2),(4,23)], [(1,11),(2,4),(4,3),(6,13)])
+    [(1, 45), (2, 4), (3, 2), (4, 26), (6, 13)]
     """
     i, j = 0, 0
     merge = []

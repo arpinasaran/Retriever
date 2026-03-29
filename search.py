@@ -2,8 +2,9 @@ from bsbi import BSBIIndex
 from spimi import SPIMIIndex
 from compression import VBEPostings
 
-# sebelumnya sudah dilakukan indexing
-# BSBIIndex / SPIMIIndex hanya sebagai abstraksi untuk index tersebut
+# Assumes indexing has already been run (python bsbi.py and python spimi.py).
+# BSBIIndex / SPIMIIndex are used here only as retrieval interfaces over the
+# pre-built indices — no re-indexing occurs.
 BSBI_instance = BSBIIndex(data_dir='collection',
                           postings_encoding=VBEPostings,
                           output_dir='index')
