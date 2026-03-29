@@ -237,11 +237,199 @@ class VBEPostings:
             List of term frequencies yang merupakan hasil decoding dari encoded_tf_list
         """
         return VBEPostings.vb_decode(encoded_tf_list)
+    
+class EliasGammaPostings:
+    """Postings compression using Elias-Gamma coding.
+
+    Elias-Gamma is a bit-level universal code for positive integers.
+    Unlike VBE which operates at byte granularity (7 data bits per byte),
+    Elias-Gamma encodes at the bit level, producing tighter output
+    especially for small integers which are common in gap-encoded postings.
+    Expect better compression ratios than VBE, at the cost of slower
+    encode/decode due to bit manipulation overhead.
+    """
+
+    @staticmethod
+    def eg_encode_number(number: int) -> str:
+        """Encode a single positive integer using Elias-Gamma coding.
+        Each integer X is encoded as a unary prefix (floor(log2(X)) zeros
+        followed by a 1) plus the binary remainder (X - 2^floor(log2(X))
+        in floor(log2(X)) bits).
+
+        Parameters
+        ----------
+        number : int
+            A positive integer (>= 1) to encode.
+
+        Returns
+        -------
+        str
+            A string of '0' and '1' characters representing the Elias-Gamma code.
+        """
+        binary = bin(number)[2:]
+        prefix = '0' * (len(binary) - 1)
+        return prefix + binary
+
+    @staticmethod
+    def eg_encode(list_of_numbers: list[int]) -> bytes:
+        """Encode a list of positive integers into a byte stream using Elias-Gamma coding.
+
+        Concatenates all encoded bits and pads to a multiple of 8 with
+        trailing zeros. No padding metadata is needed because Elias-Gamma
+        is self-delimiting — the decoder naturally stops when remaining
+        bits can't form a complete code.
+
+        Parameters
+        ----------
+        list_of_numbers : List[int]
+            List of positive integers to encode.
+
+        Returns
+        -------
+        bytes
+            Packed byte stream of the concatenated Elias-Gamma codes.
+        """
+        bits = []
+        for idx, number in enumerate(list_of_numbers):
+            if number <= 0:
+                raise ValueError(
+                    f"Elias-Gamma only supports positive integers, got {number} at index {idx}"
+                )
+            bits.append(EliasGammaPostings.eg_encode_number(number))
+
+        bitstream = ''.join(bits)
+        padding = (8 - len(bitstream) % 8) % 8
+        bitstream += '0' * padding
+
+        payload = bytearray()
+        for i in range(0, len(bitstream), 8):
+            payload.append(int(bitstream[i:i + 8], 2))
+
+        return bytes(payload)
+
+    @staticmethod
+    def encode(postings_list: list[int]) -> bytes:
+        """Encode a sorted postings list into an Elias-Gamma byte stream.
+
+        Converts the postings list to a gap-based representation first
+        (first doc ID kept as-is, subsequent entries stored as differences),
+        then encodes the gaps with Elias-Gamma coding.
+
+        Parameters
+        ----------
+        postings_list : List[int]
+            Sorted list of doc IDs (postings).
+
+        Returns
+        -------
+        bytes
+            Elias-Gamma encoded byte stream of the gap-based postings.
+        """
+        gap_postings_list = [postings_list[0]]
+        for i in range(1, len(postings_list)):
+            gap_postings_list.append(postings_list[i] - postings_list[i - 1])
+        return EliasGammaPostings.eg_encode(gap_postings_list)
+
+    @staticmethod
+    def encode_tf(tf_list: list[int]) -> bytes:
+        """Encode a list of term frequencies into an Elias-Gamma byte stream.
+
+        Parameters
+        ----------
+        tf_list : List[int]
+            List of term frequencies (each >= 1).
+
+        Returns
+        -------
+        bytes
+            Elias-Gamma encoded byte stream of the term frequencies.
+        """
+        return EliasGammaPostings.eg_encode(tf_list)
+
+    @staticmethod
+    def eg_decode(encoded_bytestream: bytes) -> list[int]:
+        """Decode an Elias-Gamma encoded byte stream back to a list of positive integers.
+
+        Converts bytes into a bitstring, then repeatedly decodes Elias-Gamma
+        codes: count leading zeros (N), read the next N+1 bits as the integer
+        value. Stops when remaining bits can't form a complete code (trailing
+        padding is naturally ignored).
+
+        Parameters
+        ----------
+        encoded_bytestream : bytes
+            Byte stream produced by eg_encode.
+
+        Returns
+        -------
+        List[int]
+            The decoded list of positive integers.
+        """
+        bitstream = ''.join(format(byte, '08b') for byte in encoded_bytestream)
+
+        numbers = []
+        pos = 0
+        while pos < len(bitstream):
+            # Count leading zeros to determine N
+            n = 0
+            while pos + n < len(bitstream) and bitstream[pos + n] == '0':
+                n += 1
+            # Read N+1 bits (the '1' + N remainder bits) as the integer
+            start = pos + n
+            end = start + n + 1
+            if end > len(bitstream):
+                break
+            numbers.append(int(bitstream[start:end], 2))
+            pos = end
+
+        return numbers
+
+    @staticmethod
+    def decode(encoded_postings_list: bytes) -> list[int]:
+        """Decode an Elias-Gamma encoded postings byte stream back to doc IDs.
+
+        Decodes the gap-based list first, then reconstructs the original
+        sorted doc IDs by computing prefix sums.
+
+        Parameters
+        ----------
+        encoded_postings_list : bytes
+            Byte stream produced by encode().
+
+        Returns
+        -------
+        List[int]
+            Sorted list of doc IDs.
+        """
+        gap_list = EliasGammaPostings.eg_decode(encoded_postings_list)
+        total = gap_list[0]
+        postings_list = [total]
+        for i in range(1, len(gap_list)):
+            total += gap_list[i]
+            postings_list.append(total)
+        return postings_list
+
+    @staticmethod
+    def decode_tf(encoded_tf_list: bytes) -> list[int]:
+        """Decode an Elias-Gamma encoded byte stream back to term frequencies.
+
+        Parameters
+        ----------
+        encoded_tf_list : bytes
+            Byte stream produced by encode_tf().
+
+        Returns
+        -------
+        List[int]
+            List of term frequencies.
+        """
+        return EliasGammaPostings.eg_decode(encoded_tf_list)
+
 
 if __name__ == '__main__':
     postings_list = [34, 67, 89, 454, 2345738]
     tf_list = [12, 10, 3, 4, 1]
-    for Postings in [StandardPostings, VBEPostings]:
+    for Postings in [StandardPostings, VBEPostings, EliasGammaPostings]:
         print(Postings.__name__)
 
         t0 = time.time()
