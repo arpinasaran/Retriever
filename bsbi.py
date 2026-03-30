@@ -425,9 +425,9 @@ class BSBIIndex:
                             heapq.heapreplace(top_k_heap, (score, cur_doc))
                             threshold = top_k_heap[0][0]
                     else:
-                        # Preceding terms not aligned; advance one toward pivot
-                        aterm_idx = min(range(p_term_idx + 1),
-                                       key=lambda i: len(term_data[i]['postings']))
+                        # only pick from preceding terms that are strictly behind the pivot
+                        candidates = [i for i in range(p_term_idx) if current_did(term_data[i]) < pivot]
+                        aterm_idx = min(candidates, key=lambda i: len(term_data[i]['postings']))
                         advance_to(term_data[aterm_idx], pivot)
 
             # Convert heap to sorted results
